@@ -1,3 +1,4 @@
+
 name: Build Raj Mock Test APK
 
 on:
@@ -11,11 +12,56 @@ permissions:
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Show project files
+        shell: bash
+        run: |
+          echo "Searching repository for Android project files..."
+          find . -maxdepth 6 -type f \( \
+            -name gradlew -o \
+            -name settings.gradle -o \
+            -name settings.gradle.kts -o \
+            -name build.gradle -o \
+            -name build.gradle.kts -o \
+            -name AndroidManifest.xml -o \
+            -name package.json -o \
+            -name index.html \
+          \) -print | head -200
+
+      - name: Find Android Gradle project
+        id: project
+        shell: bash
+        run: |
+          WRAPPER=$(find . -maxdepth 6 -type f -name gradlew -print -quit)
+
+          if [ -n "$WRAPPER" ]; then
+            PROJECT_DIR=$(dirname "$WRAPPER")
+            echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+            echo "Found Gradle wrapper in: $PROJECT_DIR"
+            exit 0
+          fi
+
+          SETTINGS=$(find . -maxdepth 6 -type f \( \
+            -name settings.gradle -o \
+            -name settings.gradle.kts \
+          \) -print -quit)
+
+          if [ -n "$SETTINGS" ]; then
+            PROJECT_DIR=$(dirname "$SETTINGS")
+            echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+            echo "Found Gradle project in: $PROJECT_DIR"
+            exit 0
+          fi
+
+          echo "ERROR: No Android Gradle project or Gradle wrapper found."
+          echo "A website-only ZIP cannot be built directly as an Android APK."
+          exit 1
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -23,23 +69,8 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Locate Android project
-        id: project
-        shell: bash
-        run: |
-          if [ -f "raj-mock-app-main/gradlew" ]; then
-            echo "dir=raj-mock-app-main" >> "$GITHUB_OUTPUT"
-          elif [ -f "gradlew" ]; then
-            echo "dir=." >> "$GITHUB_OUTPUT"
-          elif [ -f "raj-mock-app-main/app/build.gradle" ] || [ -f "raj-mock-app-main/app/build.gradle.kts" ]; then
-            echo "dir=raj-mock-app-main" >> "$GITHUB_OUTPUT"
-          elif [ -f "app/build.gradle" ] || [ -f "app/build.gradle.kts" ]; then
-            echo "dir=." >> "$GITHUB_OUTPUT"
-          else
-            echo "Android Gradle project not found."
-            echo "This ZIP may contain website files instead of an Android project."
-            exit 1
-          fi
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Build Debug APK
         working-directory: ${{ steps.project.outputs.dir }}
@@ -48,8 +79,10 @@ jobs:
           if [ -f gradlew ]; then
             chmod +x gradlew
             ./gradlew assembleDebug --no-daemon
+          elif command -v gradle >/dev/null 2>&1; then
+            gradle assembleDebug --no-daemon
           else
-            echo "Gradle wrapper missing. Cannot safely build this project yet."
+            echo "ERROR: Gradle is not available."
             exit 1
           fi
 
@@ -58,7 +91,6 @@ jobs:
         with:
           name: RAJ-MOCK-TEST-APK
           path: |
-            raj-mock-app-main/app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/debug/*.apk
+            **/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 7
