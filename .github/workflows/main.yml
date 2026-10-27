@@ -1,17 +1,10 @@
-
 name: Build Raj Mock Test APK
 
 on:
   workflow_dispatch:
   push:
-    paths:
-      - "app/**"
-      - "gradle/**"
-      - ".github/workflows/build-apk.yml"
-      - "build.gradle"
-      - "settings.gradle"
-      - "gradlew"
-      - "gradle.properties"
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -21,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java
@@ -30,28 +23,42 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Make Gradle executable
+      - name: Locate Android project
+        id: project
+        shell: bash
         run: |
-          if [ -f gradlew ]; then
-            chmod +x gradlew
-          fi
-
-      - name: Build Debug APK
-        run: |
-          if [ -f gradlew ]; then
-            ./gradlew assembleDebug --no-daemon
-          elif [ -f build.gradle ] || [ -f build.gradle.kts ]; then
-            gradle assembleDebug --no-daemon
+          if [ -f "raj-mock-app-main/gradlew" ]; then
+            echo "dir=raj-mock-app-main" >> "$GITHUB_OUTPUT"
+          elif [ -f "gradlew" ]; then
+            echo "dir=." >> "$GITHUB_OUTPUT"
+          elif [ -f "raj-mock-app-main/app/build.gradle" ] || [ -f "raj-mock-app-main/app/build.gradle.kts" ]; then
+            echo "dir=raj-mock-app-main" >> "$GITHUB_OUTPUT"
+          elif [ -f "app/build.gradle" ] || [ -f "app/build.gradle.kts" ]; then
+            echo "dir=." >> "$GITHUB_OUTPUT"
           else
             echo "Android Gradle project not found."
-            echo "Check that app/, settings.gradle and Gradle build files exist."
+            echo "This ZIP may contain website files instead of an Android project."
             exit 1
           fi
 
-      - name: Upload APK Artifact
+      - name: Build Debug APK
+        working-directory: ${{ steps.project.outputs.dir }}
+        shell: bash
+        run: |
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug --no-daemon
+          else
+            echo "Gradle wrapper missing. Cannot safely build this project yet."
+            exit 1
+          fi
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: RAJ-MOCK-TEST-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: |
+            raj-mock-app-main/app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 7
